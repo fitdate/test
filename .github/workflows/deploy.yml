@@ -10,10 +10,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Set up .env file from secrets
-      run: |
-        echo "${{ secrets.ENV_FILE }}" > /home/ubuntu/test/.env
-
     - name: Connect & Deploy to EC2
       uses: appleboy/ssh-action@v1.0.3
       with:
@@ -23,5 +19,6 @@ jobs:
         script: |
           cd /home/ubuntu/test
           git pull origin main
+          echo "${{ secrets.ENV_FILE }}" > .env
           npm install
           pm2 restart myapp || pm2 start npm --name myapp -- start
