@@ -20,4 +20,5 @@ jobs:
           cd /home/ubuntu/test
           git pull origin main
           npm install
+          cp .env /home/ubuntu/test/.env
           pm2 restart myapp || pm2 start npm --name myapp -- start
