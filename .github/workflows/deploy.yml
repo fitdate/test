@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Set up .env file from secrets
+      run: |
+        echo "${{ secrets.ENV_FILE }}" > .env
+
     - name: Connect & Deploy to EC2
       uses: appleboy/ssh-action@v1.0.3
       with:
