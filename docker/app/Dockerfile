@@ -1,5 +1,5 @@
 # 1. Node.js 이미지 선택 (LTS 버전)
-FROM node:18-alpine
+FROM node:20-alpine
 
 # 2. 작업 디렉터리 생성
 WORKDIR /app
