@@ -19,6 +19,8 @@ jobs:
         script: |
           # 프로젝트 루트 디렉토리로 이동
           cd /home/ubuntu/test
+          git reset --hard
+          git clean -fd
           git pull origin main
           
           # 현재 활성화된 앱 확인

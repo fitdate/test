@@ -13,7 +13,7 @@ services:
 
   blue-app:
     build:
-      context: ./app
+      context: ./docker/app
       dockerfile: Dockerfile
     container_name: blue-app
     environment:
@@ -28,7 +28,7 @@ services:
 
   green-app:
     build:
-      context: ./app
+      context: ./docker/app
       dockerfile: Dockerfile
     container_name: green-app
     environment:
