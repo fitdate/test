@@ -1,7 +1,7 @@
 services:
   app:
     container_name: fit-blue
-    image: hiryuji/fit-be:latest
+    image: sunghan123/fit-be:latest
     restart: unless-stopped
     ports:
       - '3000:3000'

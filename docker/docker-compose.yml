@@ -11,7 +11,7 @@ services:
       - APP_PORT=3000
       - REDIS_HOST=redis-blue
       - REDIS_PORT=6379
-      - APP_ENV=production
+      - APP_ENV=development
       - ENV_FILE=.env.blue
     networks:
       - redis-network
@@ -30,7 +30,7 @@ services:
       - APP_PORT=3001
       - REDIS_HOST=redis-green
       - REDIS_PORT=6379
-      - APP_ENV=production
+      - APP_ENV=development
       - ENV_FILE=.env.green
     networks:
       - redis-network
