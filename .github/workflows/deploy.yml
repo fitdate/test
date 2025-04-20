@@ -1,24 +1,225 @@
-name: Deploy to EC2
+name: Deploy Backend Application # 배포 워크플로우
 
 on:
   push:
-    branches:
-      - main
+    branches: [main, develop]
+    paths:
+      - '**.ts'
+      - 'package*.json'
+      - 'tsconfig*.json'
+      - '.env.example'
+      - 'nest-cli.json'
+      - '.github/workflows/**'
+      - 'Dockerfile'
+      - 'docker/nginx/**'
+      - 'docker/docker-compose.yml'
+      - '!frontend/**'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Connect & Deploy to EC2
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.KEY }}
-        script: |
-          cd /home/ubuntu/test
-          git pull origin main
+      # 📦 코드 체크아웃
+      - name: 📦 Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      # 🔧 Node.js 설정
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # 🔑 SSH 키 설치
+      - name: 🔑 Install SSH key
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # 🔐 SSH 설정 및 테스트
+      - name: 🔐 Configure SSH and Test Connection
+        run: |
+          # SSH 디렉토리 생성 및 권한 설정
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # SSH 키 파일 생성
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/fit-key.pem
+          chmod 600 ~/.ssh/fit-key.pem
+
+          # SSH 설정 파일 생성
+          cat > ~/.ssh/config << EOL
+          Host ${{ secrets.DB_HOST }}
+            User ubuntu
+            IdentityFile ~/.ssh/fit-key.pem
+            StrictHostKeyChecking no
+            ServerAliveInterval 30
+          EOL
+          chmod 600 ~/.ssh/config
+
+          # .env 파일 생성
           echo "${{ secrets.ENV_FILE }}" > .env
-          npm install
-          pm2 restart myapp || pm2 start npm --name myapp -- start
+
+          # SSH 연결 테스트
+          ssh -i ~/.ssh/fit-key.pem ubuntu@${{ secrets.DB_HOST }} "echo 'SSH connection successful'"
+
+      # 🔐 DockerHub 로그인
+      - name: 🔐 Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # 🐳 Docker 이미지 빌드 및 푸시
+      - name: 🐳 Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/fit-be:${{ github.sha }}
+            ${{ secrets.DOCKER_USERNAME }}/fit-be:latest
+
+      # 🧪 DB 서버 상태 확인
+      - name: 🧪 Check Database Server Status
+        run: |
+          ssh ubuntu@${{ secrets.DB_HOST }} "
+            echo 'PostgreSQL status:'
+            sudo systemctl status postgresql || echo 'PostgreSQL service not found'
+            
+            echo 'PostgreSQL port:'
+            sudo netstat -tulpn | grep postgres || echo 'No PostgreSQL process found'
+            
+            echo 'PostgreSQL config:'
+            sudo cat /etc/postgresql/*/main/postgresql.conf | grep listen_addresses || echo 'No PostgreSQL config found'
+          "
+
+      # 🧹 DB 초기화 및 세팅
+      - name: 🧹 Setup Database
+        run: |
+          ssh ubuntu@${{ secrets.DB_HOST }} "
+            # 시스템 업데이트
+            sudo apt-get update
+            
+            # PostgreSQL 설치 확인
+            if ! command -v psql &> /dev/null; then
+              echo 'Installing PostgreSQL...'
+              sudo apt-get install -y postgresql postgresql-contrib
+            fi
+            
+            # PostgreSQL 설정 변경
+            sudo sed -i \"s/#listen_addresses = 'localhost'/listen_addresses = '*'/\" /etc/postgresql/*/main/postgresql.conf
+            
+            # pg_hba.conf에 원격 접속 규칙 추가
+            echo 'host    all             all             0.0.0.0/0               scram-sha-256' | sudo tee -a /etc/postgresql/*/main/pg_hba.conf
+            
+            # 방화벽 설정
+            if command -v ufw &> /dev/null; then
+              sudo ufw allow 5432/tcp
+            fi
+            
+            # PostgreSQL 재시작
+            sudo systemctl restart postgresql
+            
+            # PostgreSQL 상태 확인
+            echo 'PostgreSQL status:'
+            sudo systemctl status postgresql
+            
+            # PostgreSQL 사용자 설정
+            sudo -u postgres psql -c \"CREATE USER myuser WITH PASSWORD '${{ secrets.DB_PASSWORD }}' SUPERUSER;\"
+            
+            export PGPASSWORD='${{ secrets.DB_PASSWORD }}'
+            
+            # 데이터베이스 초기화
+            psql -U myuser -h ${{ secrets.DB_HOST }} -p 5432 postgres << 'EOF'
+              -- 기존 연결 종료
+              SELECT pg_terminate_backend(pid)
+              FROM pg_stat_activity
+              WHERE datname = 'fit' AND pid <> pg_backend_pid();
+              
+              -- 데이터베이스 삭제 및 재생성
+              DROP DATABASE IF EXISTS fit;
+              CREATE DATABASE fit;
+              ALTER DATABASE fit OWNER TO myuser;
+              GRANT ALL PRIVILEGES ON DATABASE fit TO myuser;
+            EOF
+
+            # 스키마 초기화
+            psql -U myuser -d fit -h ${{ secrets.DB_HOST }} -p 5432 << 'EOF'
+              -- 모든 테이블과 제약조건 삭제
+              DROP SCHEMA IF EXISTS public CASCADE;
+              CREATE SCHEMA public;
+              ALTER SCHEMA public OWNER TO myuser;
+              GRANT ALL ON SCHEMA public TO myuser;
+              
+              -- UUID 확장 설치
+              CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+              
+              -- 테이블 생성 권한 부여
+              GRANT ALL ON ALL TABLES IN SCHEMA public TO myuser;
+              GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO myuser;
+              GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO myuser;
+              
+              -- TypeORM 메타데이터 테이블 삭제
+              DROP TABLE IF EXISTS typeorm_metadata;
+            EOF
+          "
+
+# 🚀 EC2로 배포
+- name: 🚀 Deploy to EC2
+  env:
+    DB_HOST: ${{ secrets.DB_HOST }}
+    USERNAME: ubuntu
+    DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+    BLUE_PORT: 3000
+    GREEN_PORT: 3001
+  run: |
+    # Nginx 설정 업로드 및 적용
+    ssh ubuntu@$DB_HOST "mkdir -p ~/nginx-config && chmod 755 ~/nginx-config"
+    ssh ubuntu@$DB_HOST "sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled"
+
+    # 백엔드 API 설정 (api.conf)
+    scp docker/nginx/api.conf ubuntu@$DB_HOST:~/api.conf
+    ssh ubuntu@$DB_HOST "
+      sudo mv ~/api.conf /etc/nginx/sites-available/
+      sudo ln -sf /etc/nginx/sites-available/api.conf /etc/nginx/sites-enabled/api.conf
+    "
+
+    # 프론트엔드 Blue-Green 설정
+    scp docker/nginx/fit-blue.conf docker/nginx/fit-green.conf ubuntu@$DB_HOST:~/ 
+    ssh ubuntu@$DB_HOST "
+      sudo mv ~/fit-*.conf /etc/nginx/sites-available/
+    "
+
+    # 현재 실행 포트 확인 및 Blue-Green 포트 결정
+    CURRENT_PORT=$(ssh ubuntu@$DB_HOST "curl -s localhost/port || echo $BLUE_PORT")
+    if [ \"$CURRENT_PORT\" = \"$BLUE_PORT\" ]; then
+      NEW_PORT=$GREEN_PORT
+      NEW_ENV="green"
+    else
+      NEW_PORT=$BLUE_PORT
+      NEW_ENV="blue"
+    fi
+
+    # .env 파일 업로드 및 새 컨테이너 실행
+    scp .env ubuntu@$DB_HOST:~/
+    scp docker/docker-compose.yml ubuntu@$DB_HOST:~/ 
+
+    ssh ubuntu@$DB_HOST "
+      export DOCKER_USERNAME=$DOCKER_USERNAME
+      echo '🔄 Docker Compose 업데이트 중...'
+      sudo curl -L \"https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)\" -o /usr/local/bin/docker-compose
+      sudo chmod +x /usr/local/bin/docker-compose
+      echo '🔄 이미지 다운로드 중...'
+      docker-compose -f ~/docker-compose.yml pull --quiet
+      echo '🚀 컨테이너 시작 중...'
+      docker-compose -f ~/docker-compose.yml up -d app-$NEW_ENV redis-$NEW_ENV postgres-$NEW_ENV
+
+      # 프론트엔드 Blue-Green 설정 적용
+      sudo ln -sf /etc/nginx/sites-available/fit-$NEW_ENV.conf /etc/nginx/sites-enabled/default
+      sudo nginx -t && sudo systemctl reload nginx
+    "
+
