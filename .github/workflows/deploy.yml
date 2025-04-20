@@ -168,58 +168,58 @@ jobs:
             EOF
           "
 
-# 🚀 EC2로 배포
-- name: 🚀 Deploy to EC2
-  env:
-    DB_HOST: ${{ secrets.DB_HOST }}
-    USERNAME: ubuntu
-    DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-    BLUE_PORT: 3000
-    GREEN_PORT: 3001
-  run: |
-    # Nginx 설정 업로드 및 적용
-    ssh ubuntu@$DB_HOST "mkdir -p ~/nginx-config && chmod 755 ~/nginx-config"
-    ssh ubuntu@$DB_HOST "sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled"
+      # 🚀 EC2로 배포
+      - name: 🚀 Deploy to EC2
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          USERNAME: ubuntu
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          BLUE_PORT: 3000
+          GREEN_PORT: 3001
+        run: |
+          # Nginx 설정 업로드 및 적용
+          ssh ubuntu@$DB_HOST "mkdir -p ~/nginx-config && chmod 755 ~/nginx-config"
+          ssh ubuntu@$DB_HOST "sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled"
 
-    # 백엔드 API 설정 (api.conf)
-    scp docker/nginx/api.conf ubuntu@$DB_HOST:~/api.conf
-    ssh ubuntu@$DB_HOST "
-      sudo mv ~/api.conf /etc/nginx/sites-available/
-      sudo ln -sf /etc/nginx/sites-available/api.conf /etc/nginx/sites-enabled/api.conf
-    "
+          # 백엔드 API 설정 (api.conf)
+          scp docker/nginx/api.conf ubuntu@$DB_HOST:~/api.conf
+          ssh ubuntu@$DB_HOST "
+            sudo mv ~/api.conf /etc/nginx/sites-available/
+            sudo ln -sf /etc/nginx/sites-available/api.conf /etc/nginx/sites-enabled/api.conf
+          "
 
-    # 프론트엔드 Blue-Green 설정
-    scp docker/nginx/fit-blue.conf docker/nginx/fit-green.conf ubuntu@$DB_HOST:~/ 
-    ssh ubuntu@$DB_HOST "
-      sudo mv ~/fit-*.conf /etc/nginx/sites-available/
-    "
+          # 프론트엔드 Blue-Green 설정
+          scp docker/nginx/fit-blue.conf docker/nginx/fit-green.conf ubuntu@$DB_HOST:~/ 
+          ssh ubuntu@$DB_HOST "
+            sudo mv ~/fit-*.conf /etc/nginx/sites-available/
+          "
 
-    # 현재 실행 포트 확인 및 Blue-Green 포트 결정
-    CURRENT_PORT=$(ssh ubuntu@$DB_HOST "curl -s localhost/port || echo $BLUE_PORT")
-    if [ \"$CURRENT_PORT\" = \"$BLUE_PORT\" ]; then
-      NEW_PORT=$GREEN_PORT
-      NEW_ENV="green"
-    else
-      NEW_PORT=$BLUE_PORT
-      NEW_ENV="blue"
-    fi
+          # 현재 실행 포트 확인 및 Blue-Green 포트 결정
+          CURRENT_PORT=$(ssh ubuntu@$DB_HOST "curl -s localhost/port || echo $BLUE_PORT")
+          if [ \"$CURRENT_PORT\" = \"$BLUE_PORT\" ]; then
+            NEW_PORT=$GREEN_PORT
+            NEW_ENV="green"
+          else
+            NEW_PORT=$BLUE_PORT
+            NEW_ENV="blue"
+          fi
 
-    # .env 파일 업로드 및 새 컨테이너 실행
-    scp .env ubuntu@$DB_HOST:~/
-    scp docker/docker-compose.yml ubuntu@$DB_HOST:~/ 
+          # .env 파일 업로드 및 새 컨테이너 실행
+          scp .env ubuntu@$DB_HOST:~/
+          scp docker/docker-compose.yml ubuntu@$DB_HOST:~/ 
 
-    ssh ubuntu@$DB_HOST "
-      export DOCKER_USERNAME=$DOCKER_USERNAME
-      echo '🔄 Docker Compose 업데이트 중...'
-      sudo curl -L \"https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)\" -o /usr/local/bin/docker-compose
-      sudo chmod +x /usr/local/bin/docker-compose
-      echo '🔄 이미지 다운로드 중...'
-      docker-compose -f ~/docker-compose.yml pull --quiet
-      echo '🚀 컨테이너 시작 중...'
-      docker-compose -f ~/docker-compose.yml up -d app-$NEW_ENV redis-$NEW_ENV postgres-$NEW_ENV
+          ssh ubuntu@$DB_HOST "
+            export DOCKER_USERNAME=$DOCKER_USERNAME
+            echo '🔄 Docker Compose 업데이트 중...'
+            sudo curl -L \"https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)\" -o /usr/local/bin/docker-compose
+            sudo chmod +x /usr/local/bin/docker-compose
+            echo '🔄 이미지 다운로드 중...'
+            docker-compose -f ~/docker-compose.yml pull --quiet
+            echo '🚀 컨테이너 시작 중...'
+            docker-compose -f ~/docker-compose.yml up -d app-$NEW_ENV redis-$NEW_ENV postgres-$NEW_ENV
 
-      # 프론트엔드 Blue-Green 설정 적용
-      sudo ln -sf /etc/nginx/sites-available/fit-$NEW_ENV.conf /etc/nginx/sites-enabled/default
-      sudo nginx -t && sudo systemctl reload nginx
-    "
+            # 프론트엔드 Blue-Green 설정 적용
+            sudo ln -sf /etc/nginx/sites-available/fit-$NEW_ENV.conf /etc/nginx/sites-enabled/default
+            sudo nginx -t && sudo systemctl reload nginx
+          "
 
