@@ -18,6 +18,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: fit-test
 
     steps:
       # 📦 코드 체크아웃
