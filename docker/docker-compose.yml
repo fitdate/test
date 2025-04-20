@@ -12,10 +12,12 @@ services:
       - green-app
 
   blue-app:
-    build: .
+    build:
+      context: ./app
+      dockerfile: Dockerfile
     container_name: blue-app
     environment:
-      - NODE_ENV=production
+      - APP_ENV=development
       - DB_HOST=postgres-container
       - REDIS_HOST=redis-container
     ports:
@@ -25,10 +27,12 @@ services:
       - redis
 
   green-app:
-    build: .
+    build:
+      context: ./app
+      dockerfile: Dockerfile
     container_name: green-app
     environment:
-      - NODE_ENV=production
+      - APP_ENV=development
       - DB_HOST=postgres-container
       - REDIS_HOST=redis-container
     ports:
