@@ -23,8 +23,13 @@ jobs:
           git clean -fd
           git pull origin main
           
-          # 현재 활성화된 앱 확인
-          CURRENT_APP=$(grep -o "blue-app\|green-app" docker/nginx/nginx.conf | head -1)
+          # 현재 활성화된 앱 확인 (파일이 없거나 패턴이 없을 경우 blue-app으로 기본 설정)
+          if [ -f "docker/nginx/nginx.conf" ] && grep -q "blue-app\|green-app" docker/nginx/nginx.conf; then
+            CURRENT_APP=$(grep -o "blue-app\|green-app" docker/nginx/nginx.conf | head -1)
+          else
+            CURRENT_APP="blue-app"
+            echo "WARN: nginx.conf not found or no app pattern found, defaulting to $CURRENT_APP"
+          fi
           
           # 반대 앱으로 배포
           if [ "$CURRENT_APP" = "blue-app" ]; then
@@ -41,20 +46,38 @@ jobs:
           
           # 대상 앱 빌드 및 재시작 (docker 디렉토리에서 실행)
           cd docker
+          
+          # 먼저 nginx 서비스 시작 (없을 경우)
+          if ! docker ps | grep -q nginx-container; then
+            echo "Starting nginx service..."
+            docker-compose up -d nginx
+            sleep 5
+          fi
+          
+          # 대상 앱 빌드 및 시작
+          echo "Building and starting $TARGET_APP..."
           docker-compose build $TARGET_APP
           docker-compose up -d $TARGET_APP
           
           # 앱이 준비될 때까지 대기
           echo "Waiting for $TARGET_APP to be ready..."
-          sleep 10
+          sleep 15
           
           # Nginx 설정 업데이트 (현재 docker 디렉토리에 있으므로 상대 경로 사용)
-          sed -i "s/$CURRENT_APP/$TARGET_APP/g" nginx/nginx.conf
+          echo "Updating nginx configuration..."
+          if [ -f "nginx/nginx.conf" ]; then
+            sed -i "s/$CURRENT_APP/$TARGET_APP/g" nginx/nginx.conf
+            
+            # Nginx 설정 리로드
+            if docker ps | grep -q nginx-container; then
+              echo "Reloading nginx configuration..."
+              docker-compose exec -T nginx nginx -s reload
+              echo "Traffic switched to $TARGET_APP"
+            else
+              echo "ERROR: Nginx container is not running, cannot reload config"
+            fi
+          else
+            echo "ERROR: nginx.conf not found at nginx/nginx.conf"
+          fi
           
-          # Nginx 설정 리로드
-          docker-compose exec -T nginx nginx -s reload
-          
-          echo "Traffic switched to $TARGET_APP"
-          
-          # 이전 앱 중지 (옵션)
-          # docker-compose stop $CURRENT_APP
+          echo "Deployment process completed"
