@@ -17,9 +17,9 @@ jobs:
         username: ${{ secrets.USERNAME }}
         key: ${{ secrets.KEY }}
         script: |
+          # 프로젝트 루트 디렉토리로 이동
           cd /home/ubuntu/test
           git pull origin main
-          cd docker
           
           # 현재 활성화된 앱 확인
           CURRENT_APP=$(grep -o "blue-app\|green-app" docker/nginx/nginx.conf | head -1)
@@ -37,7 +37,8 @@ jobs:
           
           echo "Deploying to $TARGET_APP"
           
-          # 대상 앱 빌드 및 재시작
+          # 대상 앱 빌드 및 재시작 (docker 디렉토리에서 실행)
+          cd docker
           docker-compose build $TARGET_APP
           docker-compose up -d $TARGET_APP
           
@@ -45,8 +46,8 @@ jobs:
           echo "Waiting for $TARGET_APP to be ready..."
           sleep 10
           
-          # Nginx 설정 업데이트
-          sed -i "s/$CURRENT_APP/$TARGET_APP/g" docker/nginx/nginx.conf
+          # Nginx 설정 업데이트 (현재 docker 디렉토리에 있으므로 상대 경로 사용)
+          sed -i "s/$CURRENT_APP/$TARGET_APP/g" nginx/nginx.conf
           
           # Nginx 설정 리로드
           docker-compose exec -T nginx nginx -s reload
