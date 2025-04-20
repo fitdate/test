@@ -19,6 +19,7 @@ jobs:
         script: |
           cd /home/ubuntu/test
           git pull origin main
+          cd docker
           
           # 현재 활성화된 앱 확인
           CURRENT_APP=$(grep -o "blue-app\|green-app" docker/nginx/nginx.conf | head -1)
