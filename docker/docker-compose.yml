@@ -6,7 +6,7 @@ services:
     ports:
       - '3000:3000'
     env_file:
-      - blue/.env
+      - blue/.env.blue
     environment:
       - APP_PORT=3000
       - REDIS_HOST=redis-blue
@@ -15,10 +15,8 @@ services:
       - ENV_FILE=.env.blue
     networks:
       - redis-network
-      - postgres-network
     depends_on:
       - redis-blue
-      - postgres-blue
 
   app-green:
     container_name: fit-green
@@ -27,7 +25,7 @@ services:
     ports:
       - '3001:3000'
     env_file:
-      - green/.env
+      - green/.env.green
     environment:
       - APP_PORT=3001
       - REDIS_HOST=redis-green
@@ -36,10 +34,8 @@ services:
       - ENV_FILE=.env.green
     networks:
       - redis-network
-      - postgres-network
     depends_on:
       - redis-green
-      - postgres-green
 
   redis-blue:
     container_name: redis-blue
@@ -59,34 +55,6 @@ services:
       - redis-network
     restart: unless-stopped
 
-  postgres-blue:
-    container_name: postgres-blue
-    image: postgres:latest
-    ports:
-      - '5432:5432'
-    environment:
-      - POSTGRES_DB=fit
-      - POSTGRES_USER=myuser
-      - POSTGRES_PASSWORD=${{ secrets.DB_PASSWORD }}
-    networks:
-      - postgres-network
-    restart: unless-stopped
-
-  postgres-green:
-    container_name: postgres-green
-    image: postgres:latest
-    ports:
-      - '5433:5432'
-    environment:
-      - POSTGRES_DB=fit
-      - POSTGRES_USER=myuser
-      - POSTGRES_PASSWORD=${{ secrets.DB_PASSWORD }}
-    networks:
-      - postgres-network
-    restart: unless-stopped
-
 networks:
   redis-network:
-    driver: bridge
-  postgres-network:
     driver: bridge
